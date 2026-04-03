@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(myenv/Scripts/pip list:*)",
-      "Bash(git add:*)"
-    ]
-  }
-}
