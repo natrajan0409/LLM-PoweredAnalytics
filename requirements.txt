@@ -1,0 +1,12 @@
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+langchain
+openai
+transformers
+streamlit
+kaggle
+mlflow>=2.9.0
+kagglehub

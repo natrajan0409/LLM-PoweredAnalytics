@@ -1,0 +1,24 @@
+# Environment
+.env
+myenv/
+
+# Database
+*.db
+database/
+
+# FAISS index & chunk metadata
+*.bin
+*.pkl
+
+# Raw data
+DATA/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
