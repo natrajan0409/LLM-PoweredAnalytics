@@ -1,9 +1,10 @@
 # LLM-Powered Analytics Assistant — Development Notes
 
 ## Project Overview
-GUVI/HCL Final Project — LLM-Powered Analytics Assistant with RAG  
-Dataset: Brazilian E-Commerce Public Dataset by Olist (~100k orders, 8 tables)  
-Stack: Python, SQLite, FAISS, Sentence-Transformers, Ollama (codellama), Streamlit, Plotly
+**GUVI/HCL Final Project** — LLM-Powered Analytics Assistant with RAG  
+**Dataset:** Brazilian E-Commerce Public Dataset by Olist (~100k orders, 8 tables, ~40k reviews)  
+**Stack:** Python · SQLite · FAISS · Sentence-Transformers · Ollama (codellama) · Streamlit · Plotly  
+**Date:** April 2026
 
 ---
 
@@ -11,16 +12,16 @@ Stack: Python, SQLite, FAISS, Sentence-Transformers, Ollama (codellama), Streaml
 
 ```
 LLM-PoweredAnalytics/
-├── DATA/                        # Raw Olist CSV files
+├── DATA/                        # Raw Olist CSV files (git-ignored)
 ├── database/                    # SQLite DB + FAISS index (git-ignored)
-│   ├── olist.db
-│   ├── faiss.index
-│   └── chunks.pkl
+│   ├── olist.db                 # 9-table SQLite database
+│   ├── faiss.index              # FAISS vector index (40,950 vectors)
+│   └── chunks.pkl               # Review chunk texts + order_id metadata
 ├── rag/
 │   ├── embedder.py              # Text chunking + embedding + FAISS index builder
 │   └── retriever.py             # FAISS similarity search
 ├── sql/
-│   └── nl_to_sql.py             # NL-to-SQL engine + SQL executor
+│   └── nl_to_sql.py             # NL-to-SQL engine + SQL executor + retry logic
 ├── llm/
 │   ├── router.py                # Query classifier (SQL / RAG / HYBRID)
 │   ├── sentiment.py             # Sentiment + complaint theme extractor
@@ -28,11 +29,15 @@ LLM-PoweredAnalytics/
 │   └── chart_generator.py       # Auto Plotly chart generator
 ├── notebooks/
 │   └── data.ipynb               # EDA + pipeline evaluation
+├── .streamlit/
+│   └── config.toml              # Disables file watcher (fixes torchvision warnings)
 ├── olist_loader.py              # CSV → SQLite ingestion
-├── app.py                       # Streamlit UI
+├── app.py                       # Streamlit UI (tabbed: Chat + Architecture flowchart)
 ├── requirements.txt
-├── .env                         # API keys (git-ignored)
-└── .gitignore
+├── .env                         # API keys — git-ignored
+├── .gitignore
+├── README.md
+└── DEVELOPMENT_NOTES.md         # This file
 ```
 
 ---
@@ -51,6 +56,29 @@ HF_TOKEN=...
 
 ---
 
+## Application Flow
+
+```
+User Question
+     │
+     ▼
+Query Router (codellama LLM)
+     │
+     ├──── SQL ────► nl_to_sql() ──► clean_sql() ──► run_sql()
+     │                                                    │
+     │                                              on error: retry
+     │                                                    │
+     │                                             DataFrame ──► build_chart() ──► Plotly fig
+     │
+     ├──── RAG ────► get_embedding() ──► FAISS.search() ──► analyse_sentiment()
+     │                                                            │
+     │                                               sentiment + themes dict
+     │
+     └── HYBRID ──► Both SQL + RAG run ──► synthesize() ──► Combined insight
+```
+
+---
+
 ## Step-by-Step Build Guide
 
 ### Step 0 — Load Data into SQLite
@@ -60,6 +88,7 @@ python olist_loader.py
 - Reads all 9 CSVs from `DATA/`
 - Creates `database/olist.db` with 9 tables
 - Uses relative paths via `os.path.dirname(os.path.abspath(__file__))`
+- Fixed bug: wrong CSV filename for product category (`product_category_name_translation.csv`)
 
 ---
 
@@ -67,16 +96,17 @@ python olist_loader.py
 ```bash
 python -m rag.embedder
 ```
-- Reads `order_reviews` from SQLite
-- Chunks review text (~1000 chars with 200 overlap)
-- Embeds using `sentence-transformers/all-MiniLM-L6-v2`
+- Reads `order_reviews` from SQLite — filters nulls and empty strings
+- Chunks review text (~1000 chars with 200 overlap) keeping `order_id` metadata
+- Embeds using `sentence-transformers/all-MiniLM-L6-v2` via `embed_documents()`
+- Builds `faiss.IndexFlatL2(384)` — L2 distance, 384 dimensions
 - Saves `database/faiss.index` + `database/chunks.pkl`
-- Output: `Embedding matrix shape: (40950, 384)` and `FAISS index size: 40950 vectors`
+- **Output:** `Embedding matrix shape: (40950, 384)` · `FAISS index size: 40950 vectors`
 
 **Key design decisions:**
-- `get_embedding(text: str)` — single string → single vector (used by retriever)
-- `embed_documents(texts)` called directly inside `build_faiss_index()` for batch embedding
-- Do NOT pass a list to `get_embedding()` — it uses `embed_query()` not `embed_documents()`
+- `get_embedding(text: str)` → uses `embed_query()` — single string → single vector (used by retriever)
+- `embed_documents(texts)` called directly inside `build_faiss_index()` — batch embedding (faster)
+- Never pass a list to `get_embedding()` — it only handles one string
 
 ---
 
@@ -85,19 +115,14 @@ python -m rag.embedder
 python -m sql.nl_to_sql
 ```
 - Uses Ollama `codellama` model
-- Schema string passed in system prompt
-- `nl_to_sql(question, retry_error=None)` — supports retry on SQL failure
-- `run_sql(sql)` — returns DataFrame, catches exceptions gracefully
-- `clean_sql(text)` — strips markdown code fences from LLM response
+- Full schema string embedded in system prompt
+- `nl_to_sql(question, retry_error=None)` — sends error back to LLM for self-correction on failure
+- `run_sql(sql)` — returns DataFrame, catches all exceptions gracefully (never crashes)
+- `clean_sql(text)` — strips markdown code fences ` ```sql ``` ` from LLM response
 
-**Common LLM mistakes to guard against:**
-- Hallucinating columns (e.g. `quantity` — does not exist in `order_items`)
-- Wrong table aliases (e.g. `T3.price` when `price` is in `order_items` not `order_payments`)
-- Wrapping SQL in markdown fences ` ```sql ``` `
-
-**Schema notes:**
-- Revenue = `SUM(order_items.price)` — no quantity column, each row = 1 item
-- `price` is in `order_items`, `payment_value` is in `order_payments`
+**Schema hints added to prompt:**
+- `price` lives in `order_items` — NOT in `order_payments`
+- No `quantity` column — each row in `order_items` = 1 unit; revenue = `SUM(price)`
 
 ---
 
@@ -106,15 +131,23 @@ python -m sql.nl_to_sql
 python -m llm.router
 ```
 - Classifies question as `SQL`, `RAG`, or `HYBRID`
-- Uses Ollama `codellama` model
-- Safety fallback: extracts first valid word from response, defaults to `SQL`
+- Uses Ollama `codellama` — strict one-word reply prompt
+- Safety fallback: scans response words for valid route, defaults to `SQL`
 
-**Routing logic:**
-| Route | When to use |
-|-------|------------|
-| SQL | Numbers, counts, totals, averages, rankings |
-| RAG | Reviews, sentiment, complaints, opinions |
+| Route | Triggered by |
+|-------|-------------|
+| SQL | Numbers, counts, totals, averages, rankings, dates |
+| RAG | Reviews, sentiment, complaints, opinions, feedback |
 | HYBRID | Needs both structured data AND review analysis |
+
+**Test results (all 5 correct):**
+```
+SQL      ← What are the top 5 product categories by revenue?
+RAG      ← What do customers complain about most?
+RAG      ← What are the reviews saying about top selling products?
+SQL      ← How many orders were delivered late?
+RAG      ← What is the sentiment around electronics products?
+```
 
 ---
 
@@ -122,10 +155,20 @@ python -m llm.router
 ```bash
 python -m llm.sentiment
 ```
-- Retrieves top-5 FAISS chunks for the query
-- Passes review text to LLM for analysis
-- Returns `{"sentiment": "positive/negative/mixed", "themes": [...]}`
-- `parse_sentiment()` extracts structured output from LLM response
+- Retrieves top-5 FAISS chunks for the query text
+- Joins chunk texts and passes to `codellama` with structured output prompt
+- `parse_sentiment()` extracts sentiment label and theme list from response
+- Returns `{"sentiment": "positive/negative/mixed", "themes": ["...", "...", "..."]}`
+
+**Test output:**
+```
+Retrieved chunks: 5
+Sentiment: mixed
+Themes:
+ - Received incorrect product
+ - Poor customer service
+ - Credit issue
+```
 
 ---
 
@@ -134,8 +177,9 @@ python -m llm.sentiment
 python -m llm.synthesizer
 ```
 - Used for HYBRID queries only
-- Takes SQL result (as string) + RAG result (dict) + original question
-- Returns 3-5 sentence business insight
+- Accepts: `question`, `sql_result` (string), `rag_result` (dict)
+- Builds a combined context block and asks LLM for a 3–5 sentence business insight
+- Keeps both structured numbers and review themes in one coherent answer
 
 ---
 
@@ -143,9 +187,10 @@ python -m llm.synthesizer
 ```bash
 python -m llm.chart_generator
 ```
-- `pick_chart_type(df)` — asks LLM to choose `bar`, `line`, or `pie`
-- `build_chart(df, question)` — auto-detects x (text) and y (numeric) columns
-- Returns Plotly figure ready for `st.plotly_chart()`
+- `pick_chart_type(df)` — passes column names + sample rows to LLM, gets `bar`/`line`/`pie`
+- `build_chart(df, question)` — auto-detects x (first text column) and y (first numeric column)
+- Dark theme applied: `paper_bgcolor="#1e2130"`, `plot_bgcolor="#1e2130"`
+- Returns `None` if no numeric column found (safe — app checks before rendering)
 - Defaults to `bar` if LLM returns unexpected output
 
 ---
@@ -154,13 +199,24 @@ python -m llm.chart_generator
 ```bash
 streamlit run app.py
 ```
-Three pipelines wired together:
+
+**UI Features:**
+- Dark theme via custom CSS (`#0f1117` background)
+- Two tabs: `💬 Ask Assistant` + `🗺️ App Architecture`
+- Sidebar: how-it-works cards, sample questions, dataset info
+- Colour-coded route badges (blue=SQL, green=RAG, orange=HYBRID)
+- `st.status()` live progress indicators per pipeline
+- Sentiment displayed as colour-coded cards (green/red/orange)
+- Hybrid layout: side-by-side columns for SQL data + review sentiment
+- Architecture tab: interactive Graphviz flowchart of all pipelines
+
+**Three pipelines wired together:**
 
 | Route | Pipeline |
 |-------|---------|
-| SQL | `nl_to_sql` → `run_sql` → DataFrame + Plotly chart |
-| RAG | `retriever.retrieve` → `analyse_sentiment` → sentiment + themes |
-| HYBRID | SQL pipeline + RAG pipeline → `synthesize` → merged answer |
+| SQL | `nl_to_sql` → `run_sql` → retry on error → DataFrame + `build_chart` |
+| RAG | `retriever.retrieve` → `analyse_sentiment` → sentiment + themes + excerpts |
+| HYBRID | Both above → `synthesize` → combined insight card |
 
 ---
 
@@ -168,41 +224,67 @@ Three pipelines wired together:
 
 ### 1. `ValueError: too many values to unpack` in FAISS search
 **Cause:** Query embedding had 3 dimensions `(1, 1, 384)` instead of `(1, 384)`  
-**Fix:** Use `.reshape(1, -1)` instead of `np.array([embedding])`
+**Fix:** Changed `np.array([embedding])` → `np.array(embedding).reshape(1, -1)`
 
 ### 2. `AssertionError: d == self.d` in FAISS search
-**Cause:** `get_embedding()` was calling `embed_documents()` (returns list of vectors) instead of `embed_query()` (returns single vector)  
-**Fix:** Keep `get_embedding()` using `embed_query()` for single text; use `embedder.embed_documents()` directly in `build_faiss_index()`
+**Cause:** `get_embedding()` was changed to call `embed_documents()` which returns a list of vectors — wrong type for single query lookup  
+**Fix:** Restored `get_embedding()` to use `embed_query()` (single vector); batch embedding handled separately in `build_faiss_index()`
 
 ### 3. `DatabaseError: no such column: T3.price`
-**Cause:** LLM (llama3.2 / codellama) hallucinated wrong column names in JOINs  
-**Fix:** Add retry mechanism — send error back to LLM for self-correction; add explicit schema notes about which columns belong to which table
+**Cause:** `codellama` hallucinated wrong column in JOIN alias  
+**Fix:** Added retry mechanism (sends error to LLM for correction) + explicit schema hints in prompt about which columns belong to which table
 
 ### 4. LLM wraps SQL in markdown fences
-**Cause:** codellama often responds with ` ```sql ... ``` ` blocks  
-**Fix:** `clean_sql()` function strips code fences before executing
+**Cause:** `codellama` responds with ` ```sql ... ``` ` blocks instead of raw SQL  
+**Fix:** `clean_sql()` strips code fences before executing
 
-### 5. `IndentationError` on `def` keyword
-**Cause:** Extra spaces before `def` at module level  
-**Fix:** Function definitions at module level must start at column 0
+### 5. `TypeError: nl_to_sql() got unexpected keyword 'return_error'`
+**Cause:** Typo in `app.py` — used `return_error` instead of `retry_error`  
+**Fix:** Corrected kwarg name to `retry_error`
 
-### 6. `LangChainDeprecationWarning` for HuggingFaceEmbeddings
-**Cause:** `langchain_community.embeddings.HuggingFaceEmbeddings` is deprecated  
-**Fix:** Change import to `from langchain_huggingface import HuggingFaceEmbeddings`
+### 6. `ModuleNotFoundError: No module named 'torchvision'` flood in Streamlit
+**Cause:** Streamlit file watcher scans all `transformers` model files, many need `torchvision`  
+**Fix:** Created `.streamlit/config.toml` with `fileWatcherType = "none"`
+
+### 7. `IndentationError` on `def` keyword
+**Cause:** Extra leading spaces before `def` at module level  
+**Fix:** Module-level functions must start at column 0
+
+### 8. `LangChainDeprecationWarning` for HuggingFaceEmbeddings
+**Cause:** `langchain_community.embeddings.HuggingFaceEmbeddings` deprecated since LangChain 0.2.2  
+**Fix:** Changed import to `from langchain_huggingface import HuggingFaceEmbeddings`
+
+### 9. `os.path("model")` crash in nl_to_sql.py
+**Cause:** `os.path` is a module, not a callable function  
+**Fix:** Changed to `os.getenv("model", "codellama")`
 
 ---
 
 ## LLM Model Decisions
 
-| Model tried | Result |
-|-------------|--------|
-| `llama3.2` (3B) | Too small — hallucinated columns, poor SQL |
-| `codellama` | Better — still needs retry mechanism for complex joins |
-| Claude Haiku | Best for SQL — but requires paid API |
-| Groq (llama3-70b) | Best free option — 70B model, accurate SQL |
+| Model | Parameters | SQL Quality | Notes |
+|-------|-----------|-------------|-------|
+| `llama3.2` | 3B | Poor | Hallucinated columns, wrong JOIN aliases |
+| `codellama` | 7B | Acceptable | Needs retry + prompt hints for complex joins |
+| Claude Haiku | — | Excellent | Requires paid Anthropic API — token limit exceeded |
+| Gemini Flash | — | Excellent | Requires Google subscription |
+| Groq `llama3-70b` | 70B | Best free | Free API, 5-min signup, no credit card |
 
-**Current setup:** `codellama` via Ollama (local, free, no internet needed)  
-**Recommended for production:** Groq free API with `llama3-70b-8192`
+**Current setup:** `codellama` via Ollama — local, free, works offline  
+**Recommended upgrade:** Groq free API → `llama3-70b-8192` for production-quality SQL
+
+---
+
+## UI Design Decisions
+
+| Decision | Reason |
+|----------|--------|
+| Dark theme (`#0f1117`) | Matches analytics/dashboard aesthetic |
+| Tabbed layout (Chat + Architecture) | Keeps UI clean while showing app design |
+| `st.status()` instead of spinner | Shows live step-by-step progress |
+| Graphviz flowchart in app | Built-in Streamlit — no extra package needed |
+| Sidebar with sample questions | Helps evaluators test all 3 pipeline routes quickly |
+| Colour-coded sentiment cards | Instant visual — green/red/orange without reading |
 
 ---
 
@@ -212,25 +294,38 @@ Three pipelines wired together:
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Start Ollama
+# 2. Start Ollama and pull model
 ollama serve
 ollama pull codellama
 
-# 3. Load data into SQLite
+# 3. Place CSVs in DATA/ folder
+
+# 4. Load data into SQLite
 python olist_loader.py
 
-# 4. Build FAISS index (takes 5-10 mins)
+# 5. Build FAISS index (5–10 mins first time)
 python -m rag.embedder
 
-# 5. Run the app
+# 6. Run the app
 streamlit run app.py
 ```
 
 ---
 
 ## Remaining Deliverables
-- [ ] Complete `notebooks/data.ipynb` (EDA + evaluation)
+
+- [x] `olist_loader.py` — data ingestion
+- [x] `rag/embedder.py` — FAISS index builder
+- [x] `rag/retriever.py` — FAISS search
+- [x] `sql/nl_to_sql.py` — NL-to-SQL engine
+- [x] `llm/router.py` — query classifier
+- [x] `llm/sentiment.py` — sentiment analysis
+- [x] `llm/synthesizer.py` — hybrid combiner
+- [x] `llm/chart_generator.py` — auto chart
+- [x] `app.py` — Streamlit UI with dark theme + flowchart tab
+- [x] `README.md` — full documentation
+- [ ] `notebooks/data.ipynb` — EDA + pipeline evaluation
 - [ ] Deploy on Streamlit Community Cloud
-- [ ] Add Google Drive link to dataset in README
-- [ ] Record 3-5 min demo video (SQL query, RAG query, HYBRID query)
+- [ ] Add Google Drive dataset link to README
+- [ ] Record 3–5 min demo video (SQL, RAG, HYBRID)
 - [ ] Complete project report document
