@@ -28,7 +28,7 @@ def pick_chart_type(df:pd.DataFrame) -> str:
     for word in result.split():
         if word in ("bar", "line", "pie"):
             return word
-    return "bar"   # default fallback
+    return "line"   # default fallback
 
 def build_chart(df:pd.DataFrame,question: str= "") -> px.bar:
     """Generate a Plotly chart from a DataFrame."""
