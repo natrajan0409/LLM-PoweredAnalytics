@@ -27,3 +27,4 @@ accelerate
 huggingface-hub
 datasets
 ollama 
+plotly

@@ -27,9 +27,16 @@ def split_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap):
     return splitter.split_text(text)
 
 
-def  get_embedding(texts):
-    embedder =HuggingFaceEmbeddings(model_name=embedding_model, model_kwargs={"device": "cpu"})
+def get_embedding(text: str) -> list:
+    """Embed a single text string — used by retriever for query lookup."""
+    embedder = HuggingFaceEmbeddings(model_name=embedding_model, model_kwargs={"device": "cpu"})
+    return embedder.embed_query(text)
+
+def get_embeddings_batch(texts: list) -> list:
+    """Embed a list of texts — used by build_faiss_index."""
+    embedder = HuggingFaceEmbeddings(model_name=embedding_model, model_kwargs={"device": "cpu"})
     return embedder.embed_documents(texts)
+
 
 def build_faiss_index():
     """read reivew from sqlite ,chunk,embed ,save faiss index +chunks.pkl"""
@@ -57,7 +64,7 @@ def build_faiss_index():
 
     # Step C  embed all check (load model once)
     texts = [c["text"] for c in all_chunks]
-    vectors =get_embedding(texts)
+    vectors =get_embeddings_batch(texts)
     matrix = np.array(vectors, dtype="float32") 
     print(f"Embedding matrix shape: {matrix.shape}")
 

@@ -14,7 +14,7 @@ class FaissRetriever:
             self.chunks = pickle.load(f)
 
     def retrieve(self, query_text, top_k=5):
-        query_embedding = np.array([get_embedding(query_text)], dtype="float32")
+        query_embedding = np.array([get_embedding(query_text)], dtype="float32").reshape(1,-1)
         distances, indexes = self.index.search(query_embedding, top_k)
         results = []
         for idx, score in zip(indexes[0], distances[0]):
