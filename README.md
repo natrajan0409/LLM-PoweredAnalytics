@@ -1,3 +1,15 @@
+---
+title: Olist Analytics Assistant
+emoji: 🛒
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: "1.45.0"
+app_file: app.py
+pinned: false
+python_version: "3.12"
+---
+
 # 🛒 LLM-Powered Analytics Assistant with RAG
 
 > Ask questions about Olist e-commerce data in plain English — no SQL required.
