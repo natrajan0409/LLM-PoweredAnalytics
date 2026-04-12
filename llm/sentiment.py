@@ -1,9 +1,12 @@
 import ollama
 import os
 from dotenv import load_dotenv
+from mistralai import Mistral
 
 load_dotenv()
 Main_Model = os.getenv("model", "codellama")
+api_key = os.getenv("mistral_API_key")
+client = Mistral(api_key=api_key)
 
 def analyse_sentiment(chunks: list[dict]) -> dict:
         """Analyse review chunks, return sentiment + top complaint themes."""
@@ -24,7 +27,7 @@ def analyse_sentiment(chunks: list[dict]) -> dict:
     - <theme 3>"""
         
       
-        response = ollama.chat(
+        response = client.chat.complete(
             model=Main_Model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -32,7 +35,7 @@ def analyse_sentiment(chunks: list[dict]) -> dict:
             ]
     )  
         
-        raw =response["message"]["content"].strip()
+        raw =response.choices[0].message.content.strip().lower()
         return parse_sentiment(raw)
 
 def parse_sentiment(raw :str) ->dict:
@@ -49,8 +52,9 @@ def parse_sentiment(raw :str) ->dict:
         return result
 
 if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from rag.retriever import FaissRetriever
-    import os
 
     BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     INDEX_PATH  = os.path.join(BASE_DIR, "database", "faiss.index")

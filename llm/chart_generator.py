@@ -1,5 +1,6 @@
 import os
 import ollama
+from mistralai import Mistral
 import pandas as pd
 import plotly.express as px
 from dotenv import load_dotenv
@@ -17,13 +18,15 @@ def pick_chart_type(df:pd.DataFrame) -> str:
     Which single chart type best visualises this data?
     Choose ONLY one word from: bar, line, pie
     Reply with ONE word only."""
+    api_key = os.getenv("mistral_API_key")
 
-    respose = ollama.chat(
+    client = Mistral(api_key=api_key)
+    response = client.chat.complete(
         model=Main_Model,
         messages=[{"role":"user","content":prompt}]
     )
 
-    result =respose["message"]["content"].strip().lower()
+    result = response.choices[0].message.content.strip().lower()
     # extract first valid word from response
     for word in result.split():
         if word in ("bar", "line", "pie"):

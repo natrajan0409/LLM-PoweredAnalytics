@@ -1,9 +1,12 @@
 import ollama
 import os
 from dotenv import load_dotenv
+from mistralai import Mistral
 
 load_dotenv()
 Main_Model = os.getenv("model", "codellama")
+api_key = os.getenv("mistral_API_key")
+client = Mistral(api_key=api_key)
 
 
 def synthesize(question: str, sql_result: str, rag_result: dict) -> str:
@@ -26,14 +29,14 @@ Top Complaint Themes:
 Given structured sales data and customer review analysis, write a short coherent summary.
 Be concise — 3 to 5 sentences max. Focus on actionable insights."""
 
-    response = ollama.chat(
+    response = client.chat.complete(
         model=Main_Model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": f"Question: {question}\n\nData:\n{context}"}
         ]
     )
-    return response["message"]["content"].strip()
+    return response.choices[0].message.content.strip().lower()
 
 
 if __name__ == "__main__":

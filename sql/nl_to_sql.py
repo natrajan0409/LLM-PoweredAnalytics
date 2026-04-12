@@ -2,6 +2,7 @@ import os
 import sqlite3
 import pandas as pd
 import ollama
+from mistralai import Mistral
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -61,14 +62,17 @@ Rules:
 - payment_value is in order_payments table, price is in order_items table
 {schema}"""
 
-    response = ollama.chat(
+    api_key = os.getenv("mistral_API_key")
+
+    client = Mistral(api_key=api_key)
+    response =client.chat.complete(
         model=Main_Model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_content}
         ]
     )
-    sql = response["message"]["content"].strip()
+    sql = response.choices[0].message.content.strip()
     sql = clean_sql(sql)
     return sql
 

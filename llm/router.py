@@ -1,9 +1,14 @@
 import ollama
 import os 
 from dotenv import load_dotenv
+from mistralai import Mistral
 
 load_dotenv()
 Main_Model = os.getenv("model", "codellama")
+api_key = os.getenv("mistral_API_key")
+client = Mistral(api_key=api_key)
+
+ 
 
 
 def route_query(question :str) -> str:
@@ -17,7 +22,7 @@ HYBRID - questions that need BOTH structured data AND customer reviews
 
 Reply with ONLY one word: SQL, RAG, or HYBRID. Nothing else."""
 
-    response = ollama.chat(
+    response =client.chat.complete(
             model=Main_Model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -25,7 +30,7 @@ Reply with ONLY one word: SQL, RAG, or HYBRID. Nothing else."""
             ]
         )
     
-    result = response["message"]["content"].strip().upper()
+    result = response.choices[0].message.content.strip().lower()
 
 # safety fallback — extract first word if model adds extra text
     for word in result.split():

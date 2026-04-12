@@ -4,11 +4,11 @@ scikit-learn
 matplotlib
 seaborn
 langchain
-mistralai
 anthropic
 google-generativeai
 langchain-google-genai
 langchain-mistralai
+mistralai==1.2.5
 openai
 transformers
 streamlit
