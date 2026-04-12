@@ -12,6 +12,7 @@ mistralai==1.2.5
 openai
 transformers
 streamlit
+gdown
 kaggle
 mlflow>=2.9.0
 kagglehub

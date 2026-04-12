@@ -2,6 +2,30 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
+load_dotenv()
+
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+
+# ── Download database files from Google Drive if missing ───────────────────────
+def download_database():
+    import gdown
+    db_dir = os.path.join(BASE_DIR, "database")
+    os.makedirs(db_dir, exist_ok=True)
+
+    files = {
+        "chunks.pkl":  "1ArLG_E49bubP0qqvacklJz-rkiSyC8W_",
+        "faiss.index": "1Q3AWa8sHjA98J9MxA3ZThDjJ7ijehlNp",
+        "olist.db":    "16p5aoPjb4LikHVVzTagpXkZAKoTFww-u",
+    }
+
+    for filename, file_id in files.items():
+        dest = os.path.join(db_dir, filename)
+        if not os.path.exists(dest):
+            st.info(f"Downloading {filename}...")
+            gdown.download(id=file_id, output=dest, quiet=False)
+
+download_database()
+
 from llm.router          import route_query
 from sql.nl_to_sql       import nl_to_sql, run_sql
 from rag.retriever       import FaissRetriever
@@ -9,9 +33,6 @@ from llm.sentiment       import analyse_sentiment
 from llm.synthesizer     import synthesize
 from llm.chart_generator import build_chart
 
-load_dotenv()
-
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 INDEX_PATH  = os.path.join(BASE_DIR, "database", "faiss.index")
 CHUNKS_PATH = os.path.join(BASE_DIR, "database", "chunks.pkl")
 
