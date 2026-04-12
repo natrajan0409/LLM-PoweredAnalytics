@@ -13,6 +13,7 @@ openai
 transformers
 streamlit
 gdown
+protobuf>=3.20.0,<5.0.0
 kaggle
 mlflow>=2.9.0
 kagglehub
