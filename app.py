@@ -321,7 +321,7 @@ with tab_flow:
         Router [label="🔀 Query Router\n(LLM Classifier)" fillcolor="#2a1f3d" fontcolor="#c084fc" color="#c084fc" shape=diamond]
 
         // SQL Path
-        NL2SQL  [label="🧠 NL-to-SQL\n(codellama)" fillcolor="#1a3a5c" fontcolor="#4f8ef7" color="#4f8ef7"]
+        NL2SQL  [label="🧠 NL-to-SQL\n(Mistral)" fillcolor="#1a3a5c" fontcolor="#4f8ef7" color="#4f8ef7"]
         RunSQL  [label="🗃️ Execute SQL\n(SQLite)" fillcolor="#1a3a5c" fontcolor="#4f8ef7" color="#4f8ef7"]
         Retry   [label="🔁 Retry with\nError Feedback" fillcolor="#1a2a3a" fontcolor="#7ab3f5" color="#4f8ef7"]
         Chart   [label="📊 Auto Chart\n(Plotly)" fillcolor="#1a3a5c" fontcolor="#4f8ef7" color="#4f8ef7"]
